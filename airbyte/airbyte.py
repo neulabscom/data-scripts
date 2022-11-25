@@ -98,9 +98,10 @@ def _exec(cmd):
     print(stderr)
     return stdout, stderr
 
-def download_files(version):
-    _exec(cmd='wget --output-document='+ DOCKER_COMPOSE_FILE_DEFAULT + ' https://raw.githubusercontent.com/airbytehq/airbyte/' + version + '/docker-compose.yaml')
-    _exec(cmd='wget --output-document=' + ENV_FILE_DEFAULT + ' https://raw.githubusercontent.com/airbytehq/airbyte/' + version + '/.env')
+
+def download_files(version, docker_compose_filename, env_filename):
+    _exec(cmd='wget --output-document='+ docker_compose_filename + ' https://raw.githubusercontent.com/airbytehq/airbyte/' + version + '/docker-compose.yaml')
+    _exec(cmd='wget --output-document=' + env_filename + ' https://raw.githubusercontent.com/airbytehq/airbyte/' + version + '/.env')
 
 def setup_home(workdir_path):
     if not os.path.isdir(workdir_path):
@@ -137,11 +138,21 @@ def main():
 
     try:
         setup_home(workdir_path=args.workdir)
-        download_files(version=args.version)
 
         if args.with_secrets:
+            download_files(
+                version=args.version, 
+                docker_compose_filename=DOCKER_COMPOSE_FILE_DEFAULT, 
+                env_filename=ENV_FILE_DEFAULT
+            )
             parse_docker_compose()
             parse_env_file()
+        else:
+            download_files(
+                version=args.version, 
+                docker_compose_filename=DOCKER_COMPOSE_FILE, 
+                env_filename=ENV_FILE
+            )
 
         start()
 
