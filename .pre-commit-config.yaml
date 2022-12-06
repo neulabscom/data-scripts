@@ -14,12 +14,6 @@ repos:
     rev: v1.6.0
     hooks:
       - id: autopep8
-  - repo: https://github.com/asottile/reorder_python_imports
-    rev: v2.7.1
-    hooks:
-      - id: reorder-python-imports
-        args: [--py37-plus, --add-import, "from __future__ import annotations"]
-        exclude: ^testing/resources/python3_hooks_repo/
   - repo: https://github.com/PyCQA/flake8
     rev: 4.0.1
     hooks:

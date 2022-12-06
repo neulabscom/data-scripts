@@ -167,14 +167,14 @@ def main():
             files=[
                 (
                     DOCKER_COMPOSE_FILE,
-                    'https://airflow.apache.org/docs/apache-airflow/' +
-                    args.version + '/docker-compose.yaml'
+                    'https://airflow.apache.org/docs/apache-airflow/'
+                    + args.version + '/docker-compose.yaml'
                 )
             ]
         )
         docker_compose_file = parse_docker_compose(DOCKER_COMPOSE_FILE)
 
-        if args.with_example_dags:
+        if not args.with_example_dags:
             # disable example dags
             print('Disable example DAGs')
             docker_compose_file['x-airflow-common']['environment']['AIRFLOW__CORE__LOAD_EXAMPLES'] = False
