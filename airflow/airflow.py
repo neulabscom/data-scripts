@@ -86,10 +86,11 @@ def download_files(files):
 def start(init_only=False):
     if init_only:
         print('Running only DB init')
-    _exec(cmd='docker compose up airflow-init')
-    if not init_only:
-        print('Running docker compose with daemon option')
-        _exec(cmd='docker compose up -d')
+        _exec(cmd='docker compose up airflow-init')
+        return
+
+    print('Running docker compose with daemon option')
+    _exec(cmd='docker compose up -d')
 
 
 def replace_docker_compose_file(changes, filename):
@@ -97,7 +98,7 @@ def replace_docker_compose_file(changes, filename):
     noalias_dumper.ignore_aliases = lambda self, data: True
     with open(filename, 'w') as file:
         file.write(
-            yaml.dump(changes, default_flow_style=False, Dumper=noalias_dumper))
+            yaml.dump(changes, Dumper=noalias_dumper))
 
 
 def main():
@@ -113,6 +114,12 @@ def main():
         type=str,
         default=WORKDIR,
         help='Airflow workdir',
+    )
+    parser.add_argument(
+        '-m', '--mode',
+        type=str,
+        default='init',
+        help='Script start mode',
     )
     parser.add_argument(
         '--external-db',
@@ -142,62 +149,68 @@ def main():
     args = parser.parse_args()
 
     try:
-        print('Setup Working Directory')
-        setup_home(workdir_path=args.workdir)
-        # create airflow folders
-        print('Create Airflow folders')
-        mkdir('./dags')
-        mkdir('./logs')
-        mkdir('./plugins')
+        if args.mode == 'init':
+            print('Setup Working Directory')
+            setup_home(workdir_path=args.workdir)
+            # create airflow folders
+            print('Create Airflow folders')
+            mkdir('./dags')
+            mkdir('./logs')
+            mkdir('./plugins')
 
-        # set .env file
-        print('Setup env file')
-        env = dict()
-        env['AIRFLOW_UID'] = str(get_uid())
+            # set .env file
+            print('Setup env file')
+            env = dict()
+            env['AIRFLOW_UID'] = str(get_uid())
 
-        if args.requirements:
-            print('Add additional requirements')
-            env['_PIP_ADDITIONAL_REQUIREMENTS'] = args.requirements
+            if args.requirements:
+                print('Add additional requirements')
+                env['_PIP_ADDITIONAL_REQUIREMENTS'] = args.requirements
 
-        mk_env_file(env)
-        print('download docker-compose default file')
-        download_files(
-            files=[
-                (
-                    DOCKER_COMPOSE_FILE,
-                    'https://airflow.apache.org/docs/apache-airflow/'
-                    + args.version + '/docker-compose.yaml'
-                )
-            ]
-        )
-        docker_compose_file = parse_docker_compose(DOCKER_COMPOSE_FILE)
+            mk_env_file(env)
+            print('download docker-compose default file')
+            download_files(
+                files=[
+                    (
+                        DOCKER_COMPOSE_FILE,
+                        'https://airflow.apache.org/docs/apache-airflow/'
+                        + args.version + '/docker-compose.yaml'
+                    )
+                ]
+            )
+            docker_compose_file = parse_docker_compose(DOCKER_COMPOSE_FILE)
 
-        if not args.with_example_dags:
-            # disable example dags
-            print('Disable example DAGs')
-            docker_compose_file['x-airflow-common']['environment']['AIRFLOW__CORE__LOAD_EXAMPLES'] = False
+            if not args.with_example_dags:
+                # disable example dags
+                print('Disable example DAGs')
+                docker_compose_file['x-airflow-common']['environment']['AIRFLOW__CORE__LOAD_EXAMPLES'] = 'false'
+                services = docker_compose_file['services']
+                for s in services:
+                    _env = services[s].get('environment', dict())
+                    if 'AIRFLOW__CORE__LOAD_EXAMPLES' in _env:
+                        docker_compose_file['services'][s]['environment']['AIRFLOW__CORE__LOAD_EXAMPLES'] = 'false'
+            if args.external_db:
+                print('External DB')
+                print('Loading secrets...')
+                secrets = load_secrets()
+                # update env
+                print('Update docker compose environment')
+                db_conn = 'postgresql+psycopg2://' + \
+                    secrets['DB_USER'] + ':' + \
+                    secrets['DB_PASSWORD'] + '@' + secrets['DB_HOST']
+                docker_compose_file['x-airflow-common']['environment']['AIRFLOW__DATABASE__SQL_ALCHEMY_CONN'] = db_conn
+                docker_compose_file['x-airflow-common']['environment']['AIRFLOW__CORE__SQL_ALCHEMY_CONN'] = db_conn
+                docker_compose_file['x-airflow-common']['environment']['AIRFLOW__CELERY__RESULT_BACKEND'] = 'db' + db_conn
+                # remove depends on db
+                print('Remove DB container from docker compose')
+                docker_compose_file['services'].pop('postgres', None)
+                docker_compose_file['x-airflow-common']['depends_on'].pop(
+                    'postgres')
+                docker_compose_file.pop('volumes', None)
 
-        if args.external_db:
-            print('External DB')
-            print('Loading secrets...')
-            secrets = load_secrets()
-            # update env
-            print('Update docker compose environment')
-            db_conn = 'postgresql+psycopg2://' + \
-                secrets['DB_USER'] + ':' + \
-                secrets['DB_PASSWORD'] + '@' + secrets['DB_HOST']
-            docker_compose_file['x-airflow-common']['environment']['AIRFLOW__DATABASE__SQL_ALCHEMY_CONN'] = db_conn
-            docker_compose_file['x-airflow-common']['environment']['AIRFLOW__CORE__SQL_ALCHEMY_CONN'] = db_conn
-            docker_compose_file['x-airflow-common']['environment']['AIRFLOW__CELERY__RESULT_BACKEND'] = 'db' + db_conn
-            # remove depends on db
-            print('Remove DB container from docker compose')
-            docker_compose_file['services'].pop('postgres', None)
-            docker_compose_file['x-airflow-common']['depends_on'].pop(
-                'postgres')
-            docker_compose_file.pop('volumes', None)
-
-        print('Updating docker compose')
-        replace_docker_compose_file(docker_compose_file, DOCKER_COMPOSE_FILE)
+            print('Updating docker compose')
+            replace_docker_compose_file(
+                docker_compose_file, DOCKER_COMPOSE_FILE)
 
         print('Run init command')
         start(init_only=args.init_only)

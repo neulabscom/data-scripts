@@ -36,7 +36,7 @@ def test_update_docker_compose():
 
     docker_compose_file = original_file_content
 
-    docker_compose_file['x-airflow-common']['environment']['AIRFLOW__CORE__LOAD_EXAMPLES'] = False
+    docker_compose_file['x-airflow-common']['environment']['AIRFLOW__CORE__LOAD_EXAMPLES'] = 'false'
     docker_compose_file['x-airflow-common']['environment']['AIRFLOW__DATABASE__SQL_ALCHEMY_CONN'] = 'test'
     docker_compose_file['x-airflow-common']['environment']['AIRFLOW__CORE__SQL_ALCHEMY_CONN'] = 'test'
     docker_compose_file['x-airflow-common']['environment']['AIRFLOW__CELERY__RESULT_BACKEND'] = 'test'
@@ -44,12 +44,19 @@ def test_update_docker_compose():
     docker_compose_file['services'].pop('postgres', None)
     docker_compose_file['x-airflow-common']['depends_on'].pop('postgres')
     docker_compose_file.pop('volumes', None)
+
+    services = docker_compose_file['services']
+    for s in services:
+        _env = services[s].get('environment', dict())
+        if 'AIRFLOW__CORE__LOAD_EXAMPLES' in _env:
+            docker_compose_file['services'][s]['environment']['AIRFLOW__CORE__LOAD_EXAMPLES'] = 'false'
+
     test_file_output = 'tests/data/test-docker-compose.yaml'
     replace_docker_compose_file(docker_compose_file, test_file_output)
 
     parsed = parse_docker_compose(test_file_output)
 
-    assert parsed['x-airflow-common']['environment']['AIRFLOW__CORE__LOAD_EXAMPLES'] is False
+    assert parsed['x-airflow-common']['environment']['AIRFLOW__CORE__LOAD_EXAMPLES'] == 'false'
     assert parsed['x-airflow-common']['environment']['AIRFLOW__DATABASE__SQL_ALCHEMY_CONN'] == 'test'
     assert parsed['x-airflow-common']['environment']['AIRFLOW__CORE__SQL_ALCHEMY_CONN'] == 'test'
     assert parsed['x-airflow-common']['environment']['AIRFLOW__CELERY__RESULT_BACKEND'] == 'test'
