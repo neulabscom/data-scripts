@@ -83,12 +83,7 @@ def download_files(files):
         _exec(cmd='wget --output-document=' + output_filename + ' ' + link)
 
 
-def start(init_only=False):
-    if init_only:
-        print('Running only DB init')
-        _exec(cmd='docker compose up airflow-init')
-        return
-
+def start():
     print('Running docker compose with daemon option')
     _exec(cmd='docker compose up -d')
 
@@ -116,12 +111,6 @@ def main():
         help='Airflow workdir',
     )
     parser.add_argument(
-        '-m', '--mode',
-        type=str,
-        default='init',
-        help='Script start mode',
-    )
-    parser.add_argument(
         '--external-db',
         action='store_true',
         help='External DB',
@@ -142,14 +131,14 @@ def main():
         help='Airflow other requirements to install',
     )
     parser.add_argument(
-        '--init-only',
+        '--init',
         action='store_true',
         help='Airflow run only the init db command, does not start airflow',
     )
     args = parser.parse_args()
 
     try:
-        if args.mode == 'init':
+        if args.init:
             print('Setup Working Directory')
             setup_home(workdir_path=args.workdir)
             # create airflow folders
@@ -212,10 +201,15 @@ def main():
             replace_docker_compose_file(
                 docker_compose_file, DOCKER_COMPOSE_FILE)
 
-        print('Run init command')
-        start(init_only=args.init_only)
+            print('Running only DB init')
+            _exec(cmd='docker compose up airflow-init')
+            return 0
 
-        return 0
+        else:
+            print('Run init command')
+            start()
+            return 0
+
     except Exception as e:
         print(str(e))
         return 1
