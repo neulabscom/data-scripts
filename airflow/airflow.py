@@ -104,38 +104,38 @@ def main():
         '-v', '--version',
         type=str,
         default='2.4.3',
-        help='Airflow version',
+        help='Set the Airflow version',
     )
     parser.add_argument(
         '-w', '--workdir',
         type=str,
         default=WORKDIR,
-        help='Airflow workdir',
+        help='Set the Airflow workdir',
     )
     parser.add_argument(
         '--external-db',
         action='store_true',
-        help='External DB',
+        help='Use an external DB instead of the containerized one',
     )
     parser.add_argument(
         '--with-plugins',
         action='store_true',
-        help='Airflow plugins - currently not implemented',
+        help='Set Airflow plugins - currently not implemented',
     )
     parser.add_argument(
         '--with-example-dags',
         action='store_true',
-        help='Airflow example dags',
+        help='Enable Airflow example dags',
     )
     parser.add_argument(
         '--init',
         action='store_true',
-        help='Airflow run only the init db command, does not start airflow',
+        help='Run only the init db command, does not start Airflow',
     )
     parser.add_argument(
         '--download-source',
         action='store_true',
-        help='Download source and edit it',
+        help='Download Airflow from source',
     )
     parser.add_argument(
         '--image',
