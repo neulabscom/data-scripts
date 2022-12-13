@@ -34,6 +34,7 @@ def _get_secret(secret_name, region_name):
 
 
 def load_secrets():
+    print('Loading secrets...')
     return _get_secret(
         secret_name='Airflow/Database',
         region_name='eu-west-1'
@@ -89,6 +90,7 @@ def start():
 
 
 def replace_docker_compose_file(changes, filename):
+    print('Updating docker compose')
     noalias_dumper = yaml.dumper.SafeDumper
     noalias_dumper.ignore_aliases = lambda self, data: True
     with open(filename, 'w') as file:
@@ -126,37 +128,33 @@ def main():
         help='Airflow example dags',
     )
     parser.add_argument(
-        '--requirements',
-        type=str,
-        help='Airflow other requirements to install',
-    )
-    parser.add_argument(
         '--init',
         action='store_true',
         help='Airflow run only the init db command, does not start airflow',
     )
+    parser.add_argument(
+        '--download-source',
+        action='store_true',
+        help='Download source and edit it',
+    )
+    parser.add_argument(
+        '--image',
+        type=str,
+        help='Set a custom Airflow Docker image'
+    )
+
     args = parser.parse_args()
 
     try:
-        if args.init:
+        if args.download_source:
             print('Setup Working Directory')
             setup_home(workdir_path=args.workdir)
             # create airflow folders
-            print('Create Airflow folders')
+            print('Create Airflow folders if not exist')
             mkdir('./dags')
             mkdir('./logs')
             mkdir('./plugins')
 
-            # set .env file
-            print('Setup env file')
-            env = dict()
-            env['AIRFLOW_UID'] = str(get_uid())
-
-            if args.requirements:
-                print('Add additional requirements')
-                env['_PIP_ADDITIONAL_REQUIREMENTS'] = args.requirements
-
-            mk_env_file(env)
             print('download docker-compose default file')
             download_files(
                 files=[
@@ -167,40 +165,37 @@ def main():
                     )
                 ]
             )
+
+            # set .env file
+            print('Setup env file')
+            env = dict()
+            env['AIRFLOW_UID'] = str(get_uid())
+            mk_env_file(env)
+
+        if not args.with_example_dags:
             docker_compose_file = parse_docker_compose(DOCKER_COMPOSE_FILE)
+            # disable example dags
+            print('Disable example DAGs')
+            services = docker_compose_file['services']
+            remove_example_dags(docker_compose_file,
+                                services, DOCKER_COMPOSE_FILE)
 
-            if not args.with_example_dags:
-                # disable example dags
-                print('Disable example DAGs')
-                docker_compose_file['x-airflow-common']['environment']['AIRFLOW__CORE__LOAD_EXAMPLES'] = 'false'
-                services = docker_compose_file['services']
-                for s in services:
-                    _env = services[s].get('environment', dict())
-                    if 'AIRFLOW__CORE__LOAD_EXAMPLES' in _env:
-                        docker_compose_file['services'][s]['environment']['AIRFLOW__CORE__LOAD_EXAMPLES'] = 'false'
-            if args.external_db:
-                print('External DB')
-                print('Loading secrets...')
-                secrets = load_secrets()
-                # update env
-                print('Update docker compose environment')
-                db_conn = 'postgresql+psycopg2://' + \
-                    secrets['DB_USER'] + ':' + \
-                    secrets['DB_PASSWORD'] + '@' + secrets['DB_HOST']
-                docker_compose_file['x-airflow-common']['environment']['AIRFLOW__DATABASE__SQL_ALCHEMY_CONN'] = db_conn
-                docker_compose_file['x-airflow-common']['environment']['AIRFLOW__CORE__SQL_ALCHEMY_CONN'] = db_conn
-                docker_compose_file['x-airflow-common']['environment']['AIRFLOW__CELERY__RESULT_BACKEND'] = 'db' + db_conn
-                # remove depends on db
-                print('Remove DB container from docker compose')
-                docker_compose_file['services'].pop('postgres', None)
-                docker_compose_file['x-airflow-common']['depends_on'].pop(
-                    'postgres')
-                docker_compose_file.pop('volumes', None)
+        if args.external_db:
+            docker_compose_file = parse_docker_compose(DOCKER_COMPOSE_FILE)
+            print('External DB')
+            secrets = load_secrets()
+            services = docker_compose_file['services']
+            replace_db(docker_compose_file, services,
+                       secrets, DOCKER_COMPOSE_FILE)
 
-            print('Updating docker compose')
-            replace_docker_compose_file(
-                docker_compose_file, DOCKER_COMPOSE_FILE)
+        if args.image is not None:
+            docker_compose_file = parse_docker_compose(DOCKER_COMPOSE_FILE)
+            _image = args.image
+            services = docker_compose_file['services']
+            update_image(docker_compose_file, services,
+                         _image, DOCKER_COMPOSE_FILE)
 
+        if args.init:
             print('Running only DB init')
             _exec(cmd='docker compose up airflow-init')
             return 0
@@ -213,6 +208,53 @@ def main():
     except Exception as e:
         print(str(e))
         return 1
+
+
+def update_image(docker_compose_file, services, _image, output_file):
+    print('Updating docker image')
+    for s in services:
+        services[s]['image'] = _image
+    replace_docker_compose_file(
+        docker_compose_file,
+        output_file
+    )
+
+
+def remove_example_dags(docker_compose_file, services, output_file):
+    for s in services:
+        _env = services[s].get('environment', dict())
+        if 'AIRFLOW__CORE__LOAD_EXAMPLES' in _env:
+            docker_compose_file['services'][s]['environment']['AIRFLOW__CORE__LOAD_EXAMPLES'] = 'false'
+    replace_docker_compose_file(
+        docker_compose_file,
+        output_file
+    )
+
+
+def replace_db(docker_compose_file, services, secrets, output_file):
+    print('Replace DB container with other db')
+    db_conn = 'postgresql+psycopg2://' + \
+        secrets['DB_USER'] + ':' + \
+        secrets['DB_PASSWORD'] + '@' + secrets['DB_HOST']
+    for s in services:
+        _env = services[s].get('environment', dict())
+        if 'AIRFLOW__DATABASE__SQL_ALCHEMY_CONN' in _env:
+            docker_compose_file['services'][s]['environment']['AIRFLOW__DATABASE__SQL_ALCHEMY_CONN'] = db_conn
+        if 'AIRFLOW__CORE__SQL_ALCHEMY_CONN' in _env:
+            docker_compose_file['services'][s]['environment']['AIRFLOW__CORE__SQL_ALCHEMY_CONN'] = db_conn
+        if 'AIRFLOW__CELERY__RESULT_BACKEND' in _env:
+            docker_compose_file['services'][s]['environment']['AIRFLOW__CELERY__RESULT_BACKEND'] = 'db' + db_conn
+        _depends_on = services[s].get('depends_on', dict())
+        _depends_on.pop('postgres', None)
+
+        # remove depends on db
+    print('Remove DB container from docker compose')
+    docker_compose_file['services'].pop('postgres', None)
+    docker_compose_file.pop('volumes', None)
+    replace_docker_compose_file(
+        docker_compose_file,
+        output_file
+    )
 
 
 if __name__ == '__main__':
